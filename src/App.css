@@ -5,6 +5,12 @@
   padding: 20px;
 }
 
+.account {
+  position: fixed;
+  left: 16px;
+  top: 16px;
+  font-size: 13px;
+}
 .current-balance {
   position: fixed;
   right: 16px;

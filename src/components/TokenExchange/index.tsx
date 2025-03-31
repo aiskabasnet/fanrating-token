@@ -39,6 +39,9 @@ export default function TokenExchange() {
   >("idle");
   const [txMessage, setTxMessage] = useState<string>("");
   const [loading, setLoading] = useState<boolean>(true);
+  const [currentAccount, setCurrentAccount] = useState<string | null>(null);
+  // const [balanceRefreshing, setBalanceRefreshing] = useState<boolean>(false);
+
   // const [lastRefreshed, setLastRefreshed] = useState<Date>(new Date());
 
   // Check if on the correct network (Sepolia testnet)
@@ -51,6 +54,7 @@ export default function TokenExchange() {
 
     try {
       const balance = await dajuContract.methods.balanceOf(account).call();
+      console.log(balance, "BALACE  ");
       return web3.utils.fromWei(balance, "ether");
     } catch (error) {
       console.error("Error fetching token balance:", error);
@@ -79,6 +83,24 @@ export default function TokenExchange() {
     }
   }, [web3, dajuContract, isCorrectNetwork]);
 
+  // Force refresh account data
+  const handleForceRefresh = async () => {
+    if (web3) {
+      setLoading(true);
+      try {
+        const accounts = await web3.eth.getAccounts();
+        if (accounts.length > 0 && accounts[0] !== account) {
+          setCurrentAccount(accounts[0]);
+        }
+        await refreshData();
+      } catch (error) {
+        console.error("Error refreshing account:", error);
+      } finally {
+        setLoading(false);
+      }
+    }
+  };
+
   // Function to refresh all data
   const refreshData = useCallback(async () => {
     setLoading(true);
@@ -91,7 +113,6 @@ export default function TokenExchange() {
       const rates = await fetchExchangeRates();
       setExchangeRates(rates);
 
-      // Update last refreshed timestamp
       // setLastRefreshed(new Date());
     } catch (error) {
       console.error("Error refreshing data:", error);
@@ -100,18 +121,70 @@ export default function TokenExchange() {
     }
   }, [fetchTokenBalance, fetchExchangeRates]);
 
-  // Initial data fetch and setup refresh interval
+  // Function to refresh balance multiple times after transaction
+  const refreshBalanceAfterTransaction = useCallback(async () => {
+    // setBalanceRefreshing(true);
+
+    // Try to refresh the balance multiple times with delays
+    // This helps account for blockchain confirmation times
+    try {
+      console.log("Starting post-transaction balance refresh sequence");
+
+      // First attempt - immediate
+      let balance = await fetchTokenBalance();
+      setTokenBalance(balance);
+      console.log("Balance after first refresh:", balance);
+
+      // Second attempt - after 2 seconds
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+      balance = await fetchTokenBalance();
+      setTokenBalance(balance);
+      console.log("Balance after second refresh:", balance);
+
+      // Third attempt - after another 3 seconds
+      await new Promise((resolve) => setTimeout(resolve, 3000));
+      balance = await fetchTokenBalance();
+      setTokenBalance(balance);
+      console.log("Balance after third refresh:", balance);
+
+      // Final attempt - after another 5 seconds
+      await new Promise((resolve) => setTimeout(resolve, 5000));
+      balance = await fetchTokenBalance();
+      setTokenBalance(balance);
+      console.log("Balance after final refresh:", balance);
+    } catch (error) {
+      console.error("Error during post-transaction balance refresh:", error);
+    }
+    // finally {
+    //   setBalanceRefreshing(false);
+    // }
+  }, [fetchTokenBalance]);
+
   useEffect(() => {
-    // Only fetch if we have the necessary connections
+    if (account !== currentAccount) {
+      console.log("Account changed from", currentAccount, "to", account);
+      setCurrentAccount(account);
+      setTokenBalance("0");
+      setUsdAmount(0);
+      setTokenAmount("");
+      setTxStatus("idle");
+      setTxMessage("");
+
+      if (account && connected && web3 && dajuContract && isCorrectNetwork) {
+        refreshData();
+      }
+    }
+  }, [account]);
+
+  useEffect(() => {
     if (web3 && dajuContract && account && connected && isCorrectNetwork) {
       refreshData();
 
-      // Set up interval to refresh data
-      const interval = setInterval(refreshData, 15000); // Refresh every 15 seconds
+      // Refreshing data every 15 seconds
+      const interval = setInterval(refreshData, 15000);
 
       return () => clearInterval(interval);
     } else {
-      // Reset loading state if we're not ready to fetch
       setLoading(false);
     }
   }, [web3, dajuContract, account, connected, isCorrectNetwork, refreshData]);
@@ -180,11 +253,9 @@ export default function TokenExchange() {
       return "";
 
     try {
-      // Convert USD to USDC (assuming 1:1 ratio for simplicity)
+      // Converting USD to USDC (1:1)
       const usdcAmount = Number.parseFloat(usdValue);
-
       const calculatedAmount = usdcAmount / Number.parseFloat(usdcRate);
-
       return calculatedAmount.toFixed(6);
     } catch (error) {
       console.error("Error calculating token amount:", error);
@@ -211,14 +282,6 @@ export default function TokenExchange() {
       setTxStatus("loading");
       setTxMessage("Processing your purchase...");
 
-      // In a real app, you would:
-      // 1. Get approval to spend USDC
-      // 2. Transfer USDC to the contract or owner
-      // 3. The contract would mint tokens to the buyer
-
-      // For this test environment, we'll simulate by:
-      // 1. Calling the recordExchange function to record the transaction
-
       // Convert USD to USDC amount in wei (USDC has 6 decimals)
       const usdcAmountInWei = Math.floor(
         usdAmount * 10 ** USDC_DECIMALS
@@ -228,7 +291,7 @@ export default function TokenExchange() {
       const tx = await dajuContract.methods
         .recordExchange(
           account,
-          "USDC",
+          "FANR",
           usdcAmountInWei,
           true // isBuying = true
         )
@@ -236,18 +299,21 @@ export default function TokenExchange() {
 
       console.log("Transaction successful:", tx);
 
-      // In a real app, we would wait for the transaction to be mined
-      // and then refresh the balance
-
       setTxStatus("success");
-      setTxMessage(`Successfully purchased ${tokenAmount} FanRating tokens!`);
+      setTxMessage(
+        `Successfully purchased ${tokenAmount} FanRating tokens! Updating balance...`
+      );
 
       // Reset form
       setUsdAmount(0);
       setTokenAmount("");
 
-      // Refresh data to get updated balance
-      await refreshData();
+      // Start the multi-refresh sequence to update the balance
+      // This handles the delay in blockchain confirmation
+      await refreshBalanceAfterTransaction();
+
+      // Update the success message after balance refresh
+      setTxMessage(`Successfully purchased ${tokenAmount} FanRating tokens!`);
 
       // Reset status after a delay
       setTimeout(() => {
@@ -267,10 +333,10 @@ export default function TokenExchange() {
     }
   };
 
-  // Manual refresh function for the refresh button
-  const handleManualRefresh = () => {
-    refreshData();
-  };
+  // const handleManualRefresh = () => {
+  //   refreshData();
+  // };
+
   // Render wallet connection UI if not connected
   if (!connected) {
     return (
@@ -315,12 +381,12 @@ export default function TokenExchange() {
   return (
     <>
       <div className="current-balance">
-        <div onClick={handleManualRefresh}>
+        <div onClick={handleForceRefresh}>
           <RefreshCcw />
         </div>
         Current balance: {Number(tokenBalance).toLocaleString()} tokens
       </div>
-      {/* <div className="account">{account}</div> */}
+      <div className="account">Connected account: {account}</div>
       <div className="form">
         <label htmlFor="usd-amount">USD Amount</label>
         <InputNumber
@@ -357,15 +423,16 @@ export default function TokenExchange() {
             {txStatus === "loading" && (
               <ProgressSpinner style={{ width: "20px", height: "20px" }} />
             )}
+
             {txStatus === "success" && <CheckCircle2 />}
             {txStatus === "error" && <AlertCircle />}
-            <div>
+            {/* <div>
               {txStatus === "loading"
                 ? "Processing"
                 : txStatus === "success"
                 ? "Success"
                 : "Error"}
-            </div>
+            </div> */}
             <div>{txMessage}</div>
           </div>
         )}
