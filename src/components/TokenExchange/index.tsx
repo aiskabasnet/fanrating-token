@@ -291,7 +291,7 @@ export default function TokenExchange() {
       const tx = await dajuContract.methods
         .recordExchange(
           account,
-          "FANR",
+          "DAJU",
           usdcAmountInWei,
           true // isBuying = true
         )
